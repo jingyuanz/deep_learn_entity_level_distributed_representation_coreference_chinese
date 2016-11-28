@@ -1,7 +1,11 @@
-#coding=utf-8
+# coding=utf-8
 from compiler.ast import flatten
 import polyglot
-from polyglot.text import Text
+from polyglot.mapping import Embedding
+from polyglot.text import Text, Word
+import numpy as np
+from numpy import ndarray as nd
+
 class DataUtil:
     def __init__(self, config):
         self.config = config
@@ -10,36 +14,41 @@ class DataUtil:
         self.As = []
         self.mentions = []
         self.sentences = []
+        self.sentences_t = []
         self.all_word_average = 0
         self.type_dict = {}
+        self.embeddings = Embedding.load("./zh.sgns.model.tar.bz2")
         self.init_data()
+
+    def get_embeddings(self):
+        return self.embeddings
 
     def init_data(self):
         self.build_line_dict()
         self.parse_data()
         all_words = self.get_all_words()
-        print all_words
-        print self.sentences
+        # print all_words
+        # print self.sentences
         self.calc_word_average(all_words)
 
     def mention_pos(self, mention):
-        line = self.sentences[mention[0]]
-        m_count = len([word for word in line if 'n' in word or word == 't'])
-        return [(mention[1]+1)/m_count*0.1]
+        line = self.sentences_t[mention[0]]
+        m_count = len([word for word in line if 'n' in word or word == 't' or word=='r'])
+        return [(mention[1] + 1) / m_count * 0.1]
 
     def distance_mentions(self, m1, m2):
-        return [abs(m1[1]-m2[1])]
+        return [abs(m1[1] - m2[1])]
 
-    def mention_equals(m1,m2):
-        return m1[0]==m2[0] and m1[1]==m2[1] and m1[2]==m2[2] and m1[3]==m2[3] 
+    def mention_equals(self, m1, m2):
+        return m1[0] == m2[0] and m1[1] == m2[1] and m1[2] == m2[2] and m1[3] == m2[3]
 
     def distance_intervening_mentions(self, m1, m2):
         c = 0
         start = False
         for m in self.mentions:
-            if self.mention_equals(m,m1):
+            if self.mention_equals(m, m1):
                 start = True
-            if self.mention_equals(m,m2):
+            if self.mention_equals(m, m2):
                 break
             if start:
                 c += 1
@@ -58,13 +67,14 @@ class DataUtil:
         return all_words
 
     def calc_word_average(self, words):
-        for word in words:
-            if word != '':
-                print word
-                vec = Text(word).words[0].vector
-                print vec
-        average = sum([Text(word).words[0].vector for word in words if word != ''])/len(words)*1.0
-        return [average]
+        # for word in words:
+        # if word != '':
+        #    print word
+        #   if word in self.embeddings:
+        #      print self.embeddings[word]
+        average = sum([self.embeddings[word] for word in words if word != '' and word in self.embeddings]) / len(
+            words) * 1.0
+        return nd.tolist(average)
 
     def build_line_dict(self):
         with open(self.config.result_path) as f:
@@ -75,39 +85,38 @@ class DataUtil:
 
     def find_first_word_embedding(self, mention):
         line = self.sentences[mention[0]]
-        assert line!=[]
-        return Text(line[0]).words[0].vector
-
+        assert line != []
+        return self.embeddings[line[0]]
 
     def find_last_word_embedding(self, mention):
         line = self.sentences[mention[0]]
-        assert line!=[]
-        return Text(line[-1]).words[0].vector
+        assert line != []
+        return self.embeddings[line[-1]]
 
     def find_following(self, mention, word_num):
-        line= self.sentences[mention[0]]
-        assert line!=[]
+        line = self.sentences[mention[0]]
+        assert line != []
         word_index = mention[1]
-        if word_index >= len(line)-word_num:
-            for i in range(word_num-(len(line)-1-word_index)):
+        if word_index >= len(line) - word_num:
+            for i in range(word_num - (len(line) - 1 - word_index)):
                 line.append('')
-        following = line[word_index+1:word_index+word_num+1]
+        following = line[word_index + 1:word_index + word_num + 1]
         return following
 
     def find_proceding(self, mention, word_num):
         line = self.sentences[mention[0]]
-        assert line!=[]
+        assert line != []
         word_index = mention[1]
         if word_index <= word_num - 1:
-            for i in range(word_num-word_index):
-                line = ['']+line
+            for i in range(word_num - word_index):
+                line = [''] + line
         proceding = line[:word_num]
         return proceding
 
     def average_sent(self, mention):
         line = self.sentences[mention[0]]
-        assert line!=[]
-        return calc_word_average(line)
+        assert line != []
+        return self.calc_word_average(line)
 
     def parse_data(self):
         with open(self.config.data_path) as o_f:
@@ -119,6 +128,7 @@ class DataUtil:
                     line = lines[line_num].decode('utf-8').split('---------->')
                     words = line[0].split()
                     self.sentences.append([word.split('/')[0] for word in words if word.split('/')[1] != 'w'])
+                    self.sentences_t.append([word.split('/')[1] for word in words if word.split('/')[1] != 'w'])
                     r = line[1].strip()
                     words = [word.split('/') for word in words]
                     for i in range(len(words)):
@@ -138,8 +148,8 @@ class DataUtil:
                     self.sentences.append([])
 
     def build_feed_dict(self, start, end):
+        if end > len(self.mentions):
+            end = len(self.mentions)
+        if start > (len(self.mentions) - self.config.batch_size):
+            start = len(self.mentions) - self.config.batch_size
         return self.mentions[start:end], self.Ts[start:end], self.As[start:end]
-
-
-
-

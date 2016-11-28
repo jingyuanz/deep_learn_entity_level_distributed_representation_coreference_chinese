@@ -5,7 +5,7 @@ class Config:
         self.embedding_size = 50
         self.learning_rate = 1e-3
         self.batch_size = 32
-        self.I = 100
+        self.I = 5129
         self.M1 = 1000
         self.M2 = 500
         self.D = 500
