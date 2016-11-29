@@ -72,8 +72,7 @@ class DataUtil:
         #    print word
         #   if word in self.embeddings:
         #      print self.embeddings[word]
-        average = sum([self.embeddings[word] for word in words if word != '' and word in self.embeddings]) / len(
-            words) * 1.0
+        average = sum([self.embeddings.get(word,default=np.asarray([0.0]*self.config.embedding_size)) for word in words]) / len(words) * 1.0
         return nd.tolist(average)
 
     def build_line_dict(self):
@@ -86,12 +85,12 @@ class DataUtil:
     def find_first_word_embedding(self, mention):
         line = self.sentences[mention[0]]
         assert line != []
-        return self.embeddings[line[0]]
+        return self.embeddings.get(line[0],default=np.asarray([0.0]*self.config.embedding_size))
 
     def find_last_word_embedding(self, mention):
         line = self.sentences[mention[0]]
         assert line != []
-        return self.embeddings[line[-1]]
+        return self.embeddings.get(line[-1],default=np.asarray([0.0]*self.config.embedding_size))
 
     def find_following(self, mention, word_num):
         line = self.sentences[mention[0]]
@@ -133,19 +132,23 @@ class DataUtil:
                     words = [word.split('/') for word in words]
                     for i in range(len(words)):
                         w_tup = words[i]
-                        if 'n' in w_tup[1] or w_tup[1] == 't':
-                            self.mentions.append((k, i, w_tup[0], w_tup[1]))
+                        if 'n' in w_tup[1] or w_tup[1] == 't' or w_tup[1]=='r':
+                            mention_tup = (k, i, w_tup[0], w_tup[1])
+                            self.mentions.append(mention_tup)
                             if not line_mention:
                                 self.As.append([self.config.NA])
                             else:
                                 self.As.append(line_mention)
-                            line_mention.append(w_tup[0])
+                            line_mention.append(mention_tup)
                             if w_tup[0] == r:
-                                self.Ts.append([words[word_index]])
+                                target_w = words[word_index]
+                                target_mention_tup = (k, word_index, target_w[0], target_w[1])
+                                self.Ts.append([target_mention_tup])
                             else:
                                 self.Ts.append([self.config.NA])
                 else:
                     self.sentences.append([])
+                    self.sentences_t.append([])
 
     def build_feed_dict(self, start, end):
         if end > len(self.mentions):

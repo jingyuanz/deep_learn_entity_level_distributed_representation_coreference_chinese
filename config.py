@@ -2,7 +2,7 @@ class Config:
     def __init__(self):
         self.data_path = './out.txt'
         self.result_path = './results.txt'
-        self.embedding_size = 50
+        self.embedding_size = 256
         self.learning_rate = 1e-3
         self.batch_size = 32
         self.I = 5129

@@ -29,17 +29,18 @@ class Coref_clustter:
         # self.M = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
         # self.As = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
         # self.Ts = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
-        self.M = []
-        self.As = []
-        self.Ts = []
+        self.M = self.du.mentions
+        self.As = self.du.As
+        self.Ts = self.du.Ts
+        self.mistakes = tf.placeholder(tf.float32, shape=[None])
+        self.HA = tf.placeholder(tf.float32,shape=[None, self.config.I])
+        self.ht = tf.placeholder(tf.float32,shape=[self.config.I,])
 
     def h(self, a, m):
         if a=='#':
             a = m
-        print a,m
-        embed_a = nd.tolist(self.embeddings[a[2]])
-        # print len(embed_a)
-        embed_m = nd.tolist(self.embeddings[m[2]])
+        embed_a = nd.tolist(self.embeddings.get(a[2],default=np.asarray([0.0]*self.config.embedding_size)))
+        embed_m = nd.tolist(self.embeddings.get(m[2],default=np.asarray([0.0]*self.config.embedding_size)))
         # print len(embed_m)
         first_aw_embed = nd.tolist(self.du.find_first_word_embedding(a))
         # print len(first_aw_embed)
@@ -49,18 +50,14 @@ class Coref_clustter:
         # print len(last_aw_embed)
         last_mw_embed = nd.tolist(self.du.find_last_word_embedding(m))
         # print len(last_mw_embed)
-        proced2_a_embed = flatten([nd.tolist(self.embeddings[word]) for word in self.du.find_proceding(a, 2) if word != ''])
-        proced2_a_embed = proced2_a_embed + [0.0]*(512-len(proced2_a_embed))
+        proced2_a_embed = flatten([nd.tolist(self.embeddings.get(word,default=np.asarray([0.0]*self.config.embedding_size))) for word in self.du.find_proceding(a, 2)])
         # print len(proced2_a_embed)
-        follow2_a_embed = flatten([nd.tolist(self.embeddings[word]) for word in self.du.find_following(a, 2) if word != ''])
-        follow2_a_embed = follow2_a_embed + [0.0]*(512-len(follow2_a_embed))
+        follow2_a_embed = flatten([nd.tolist(self.embeddings.get(word,default=np.asarray([0.0]*self.config.embedding_size))) for word in self.du.find_following(a, 2)])
         # print len(follow2_a_embed)
 
-        proced2_m_embed = flatten([nd.tolist(self.embeddings[word]) for word in self.du.find_proceding(m, 2) if word != ''])
-        proced2_m_embed = proced2_m_embed + [0.0] * (512 - len(proced2_m_embed))
+        proced2_m_embed = flatten([nd.tolist(self.embeddings.get(word,default=np.asarray([0.0]*self.config.embedding_size))) for word in self.du.find_proceding(m, 2)])
         # print len(proced2_m_embed)
-        follow2_m_embed = flatten([nd.tolist(self.embeddings[word]) for word in self.du.find_following(m, 2) if word != ''])
-        follow2_m_embed = follow2_m_embed + [0.0] * (512 - len(follow2_m_embed))
+        follow2_m_embed = flatten([nd.tolist(self.embeddings.get(word,default=np.asarray([0.0]*self.config.embedding_size))) for word in self.du.find_following(m, 2)])
         # print len(first_mw_embed)
 
         avg5f_a = self.du.calc_word_average(self.du.find_following(a, 5))
@@ -90,18 +87,17 @@ class Coref_clustter:
 
         result = embed_a + first_aw_embed + last_aw_embed + proced2_a_embed + follow2_a_embed + avg5f_a + avg5p_a + avgsent_a + type_a + mention_pos_a + mention_len_a + embed_m + first_mw_embed + last_mw_embed + proced2_m_embed + follow2_m_embed + avg5f_m + avg5p_m + avgsent_m + type_m + mention_pos_m + mention_len_m + avg_all + distance + distance_m
         # print len(result) #4873
-        matrix_result = tf.expand_dims(tf.constant(result), 1)
         # print matrix_result
-        return matrix_result
+        return np.array(result, dtype=np.float32)
 
-    def r(self, a, m):
-        h1 = tf.nn.relu(tf.matmul(self.W1, self.h(a, m)) + self.b1)
-        h2 = tf.nn.relu(tf.matmul(self.W2, h1) + self.b2)
-        y = tf.nn.relu(tf.matmul(self.W3, h2) + self.b3)
+    def r(self, h):
+        h1 = tf.nn.relu(tf.matmul(self.W1,tf.reshape(h,[self.config.I, 1])) + self.b1)
+        h2 = tf.nn.relu(tf.matmul(self.W2,h1) + self.b2)
+        y = tf.nn.relu(tf.matmul(self.W3,h2) + self.b3)
         return y
 
-    def s(self, a, m):
-        y = self.r(a, m)
+    def s(self, h):
+        y = self.r(h)
         s_val = tf.matmul(self.Wm, y) + self.bm
         return s_val
 
@@ -117,29 +113,37 @@ class Coref_clustter:
     def main(self):
         # loss = tf.reduce_sum()
         # print typeof(self.M)
-        for i in range(len(self.M)):
-            m = self.M[i]
-            A = self.As[i]
-            loss = 0
-            T = self.Ts[i]
-            max_subloss = 0
-            for a in A:
-                max_st = tf.reduce_max([self.s(t, m) for t in T])
-                sm = self.s(a, m)
-                mis = self.mistake(a, T)
-                subloss = mis * (1 + sm - max_st) * 1.0
-                if loss > max_subloss:
-                    max_subloss = subloss
-            loss += max_subloss
-        loss = np.float32(loss)
+        # for i in range(len(self.M)):
+        #     m = self.M[i]
+        #     A = self.As[i]
+        #     loss = 0
+        #     T = self.Ts[i]
+        #     max_subloss = 0
+        #     for a in A:
+        #         max_st = tf.reduce_max([self.s(t, m) for t in T])
+        #         sm = self.s(a, m)
+        #         mis = self.mistake(a, T)
+        #         subloss = mis * (1 + sm - max_st) * 1.0
+        #         if loss > max_subloss:
+        #             max_subloss = subloss
+        #     loss += max_subloss
+        # loss = np.float32(loss)
+        loss = tf.reduce_max(self.mistakes*tf.map_fn(lambda x: 1+self.s(x)-self.s(self.ht), self.HA))
         train_step = tf.train.GradientDescentOptimizer(0.01).minimize(loss)
         sess = tf.InteractiveSession()
         # Train
         tf.initialize_all_variables().run()
-        for i in range(20):
-            feed = self.du.build_feed_dict(self.config.batch_size * i, self.config.batch_size * (i + 1))
-
-            sess.run(train_step, feed_dict=feed)
+        for i in range(len(self.M)):
+            print i
+            # feed = self.du.build_feed_dict(self.config.batch_size * i, self.config.batch_size * (i + 1))
+            m = self.M[i]
+            A = self.As[i]
+            T = self.Ts[i]
+            mistakes =[self.mistake(a, T) for a in A]
+            t = T[0]
+            ht = self.h(t,m)
+            HA = [self.h(a,m) for a in A]
+            sess.run(train_step, feed_dict={self.mistakes:mistakes, self.ht:ht, self.HA:HA})
 
             # Test trained model
             # correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_, 1))
