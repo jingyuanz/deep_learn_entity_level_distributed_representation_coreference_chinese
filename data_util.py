@@ -18,6 +18,8 @@ class DataUtil:
         self.all_word_average = 0
         self.type_dict = {}
         self.embeddings = Embedding.load("./zh.sgns.model.tar.bz2")
+        self.max_as_count = 0
+        self.r_indices = []
         self.init_data()
 
     def get_embeddings(self):
@@ -67,11 +69,6 @@ class DataUtil:
         return all_words
 
     def calc_word_average(self, words):
-        # for word in words:
-        # if word != '':
-        #    print word
-        #   if word in self.embeddings:
-        #      print self.embeddings[word]
         average = sum([self.embeddings.get(word,default=np.asarray([0.0]*self.config.embedding_size)) for word in words]) / len(words) * 1.0
         return nd.tolist(average)
 
@@ -139,9 +136,13 @@ class DataUtil:
                                 self.As.append([self.config.NA])
                             else:
                                 self.As.append(line_mention)
+                                current_len = len(line_mention)
+                                if current_len>self.max_as_count:
+                                    self.max_as_count = current_len
                             line_mention.append(mention_tup)
                             if w_tup[0] == r:
                                 target_w = words[word_index]
+                                self.r_indices.append((k,word_index))
                                 target_mention_tup = (k, word_index, target_w[0], target_w[1])
                                 self.Ts.append([target_mention_tup])
                             else:

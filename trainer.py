@@ -32,9 +32,11 @@ class Coref_clustter:
         self.M = self.du.mentions
         self.As = self.du.As
         self.Ts = self.du.Ts
-        self.mistakes = tf.placeholder(tf.float32, shape=[None])
-        self.HA = tf.placeholder(tf.float32,shape=[None, self.config.I])
-        self.ht = tf.placeholder(tf.float32,shape=[self.config.I,])
+        self.du.max_as_count += 1
+        self.mistakes = tf.placeholder(tf.float32, shape=[self.config.batch_size, self.du.max_as_count])
+        self.batch_HAs = tf.placeholder(tf.float32,shape=[self.config.batch_size, self.du.max_as_count, self.config.I])
+        self.batch_hts = tf.placeholder(tf.float32,shape=[self.config.batch_size, self.config.I])
+        self.indices = tf.placeholder(tf.float32, shape=[self.config.batch_size])
 
     def h(self, a, m):
         if a=='#':
@@ -88,7 +90,9 @@ class Coref_clustter:
         result = embed_a + first_aw_embed + last_aw_embed + proced2_a_embed + follow2_a_embed + avg5f_a + avg5p_a + avgsent_a + type_a + mention_pos_a + mention_len_a + embed_m + first_mw_embed + last_mw_embed + proced2_m_embed + follow2_m_embed + avg5f_m + avg5p_m + avgsent_m + type_m + mention_pos_m + mention_len_m + avg_all + distance + distance_m
         # print len(result) #4873
         # print matrix_result
-        return np.array(result, dtype=np.float32)
+        # if len(result)!=self.config.embedding_size:
+        #     print len(result)
+        return result
 
     def r(self, h):
         h1 = tf.nn.relu(tf.matmul(self.W1,tf.reshape(h,[self.config.I, 1])) + self.b1)
@@ -111,46 +115,83 @@ class Coref_clustter:
         return 0
 
     def main(self):
-        # loss = tf.reduce_sum()
-        # print typeof(self.M)
-        # for i in range(len(self.M)):
-        #     m = self.M[i]
-        #     A = self.As[i]
-        #     loss = 0
-        #     T = self.Ts[i]
-        #     max_subloss = 0
-        #     for a in A:
-        #         max_st = tf.reduce_max([self.s(t, m) for t in T])
-        #         sm = self.s(a, m)
-        #         mis = self.mistake(a, T)
-        #         subloss = mis * (1 + sm - max_st) * 1.0
-        #         if loss > max_subloss:
-        #             max_subloss = subloss
-        #     loss += max_subloss
-        # loss = np.float32(loss)
-        loss = tf.reduce_max(self.mistakes*tf.map_fn(lambda x: 1+self.s(x)-self.s(self.ht), self.HA))
+        ''' up to here'''
+        loss = tf.reduce_sum(tf.map_fn(lambda index: tf.reduce_max(self.mistakes[tf.to_int32(index)]*tf.map_fn(lambda x: 1+self.s(x)-self.s(self.batch_hts[tf.to_int32(index)]), self.batch_HAs[tf.to_int32(index)])), self.indices))
         train_step = tf.train.GradientDescentOptimizer(0.01).minimize(loss)
         sess = tf.InteractiveSession()
         # Train
         tf.initialize_all_variables().run()
-        for i in range(len(self.M)):
+        for i in range(100):
             print i
             # feed = self.du.build_feed_dict(self.config.batch_size * i, self.config.batch_size * (i + 1))
-            m = self.M[i]
-            A = self.As[i]
-            T = self.Ts[i]
-            mistakes =[self.mistake(a, T) for a in A]
-            t = T[0]
-            ht = self.h(t,m)
-            HA = [self.h(a,m) for a in A]
-            sess.run(train_step, feed_dict={self.mistakes:mistakes, self.ht:ht, self.HA:HA})
+            # loss = tf.reduce_sum(tf.map_fn(lambda index: tf.reduce_max(tf.squeeze(self.mistakes)[index] * tf.map_fn(
+            #     lambda x: 1 + self.s(x) - self.s(tf.squeeze(self.hts)[index]), tf.squeeze(self.HAs)[index])),
+            #                                self.indices))
+            # train_step = tf.train.GradientDescentOptimizer(0.01).minimize(loss)
+            batch_Ms = self.M[i*self.config.batch_size:(i+1)*self.config.batch_size]
+            batch_As = self.As[i*self.config.batch_size:(i+1)*self.config.batch_size]
+            batch_Ts = self.Ts[i*self.config.batch_size:(i+1)*self.config.batch_size]
+            mistakes = []
+            for k in range(len(batch_Ts)):
+                T = batch_Ts[k]
+                A = batch_As[k]
+                mistake = [np.float32(self.mistake(a, T)) for a in A]
+                mistake.extend([np.float32(0.0)] * (self.du.max_as_count - len(mistake)))
+                mistakes.append(mistake)
+            # print "mistakes:",mistakes, len(mistakes).
+            reduced_Ts = [T[0] for T in batch_Ts]
+            batch_hts = []
+            for j in range(len(reduced_Ts)):
+                t = reduced_Ts[j]
+                m = batch_Ms[j]
+                ht = self.h(t, m)
+                batch_hts.append(ht)
+            # hts = np.array(hts)
+            batch_HAs = []
+            for z in range(len(batch_Ms)):
+                As = batch_As[z]
+                m = batch_Ms[z]
+                HA = [self.h(a,m) for a in As]
+                padding = [np.float32(0.0)]*self.config.repr_size
+                HA.extend([padding]*(self.du.max_as_count-len(HA)))
+                batch_HAs.append(HA)
+            # batch_HAs = tf.convert_to_tensor(batch_HAs)
+            # HAs = np.array(HAs)
+            # print "HAs: ",HAs
+            indices = [w for w in range(self.config.batch_size)]
+            assert len(batch_HAs) == len(batch_hts) == len(mistakes)
+
+            sess.run(train_step, feed_dict={self.mistakes: mistakes, self.batch_hts: batch_hts, self.batch_HAs: batch_HAs, self.indices: indices})
+            # test_index = self.du.r_indices[-1]
+            # test_mentions = []
+            # test_r = '#'
+            # max_score = 0
+            # max_mention = None
+            # for id in range(len(self.M)):
+            #     if self.M[id][0] == test_index[0]:
+            #         if self.M[id][1] == test_index[1]:
+            #             test_r = self.M[id]
+            #         else:
+            #             test_mentions.append(self.M[id])
+            #
+            # for itm in test_mentions:
+            #     assert test_r!='#'
+            #     score = self.s(self.h(itm, test_r))
+            #     if score>=max_score:
+            #         max_mention = itm
+            # print max_mention[2], test_r[2]
+
+
+
+
+
 
             # Test trained model
             # correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_, 1))
             # accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
             # print(sess.run(accuracy, feed_dict={As: mnist.test.images,
             #                                     Ts: mnist.test.labels,
-            #                                     M: []}))
+            #                                     M: []  }))
 
     def weight_variable(self, shape):
         initial = tf.truncated_normal(shape, stddev=0.1)

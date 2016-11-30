@@ -3,6 +3,7 @@ class Config:
         self.data_path = './out.txt'
         self.result_path = './results.txt'
         self.embedding_size = 256
+        self.repr_size = 5129
         self.learning_rate = 1e-3
         self.batch_size = 32
         self.I = 5129
