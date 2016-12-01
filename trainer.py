@@ -37,8 +37,14 @@ class Coref_clustter:
         self.batch_HAs = tf.placeholder(tf.float32,shape=[self.config.batch_size, self.du.max_as_count, self.config.I])
         self.batch_hts = tf.placeholder(tf.float32,shape=[self.config.batch_size, self.config.I])
         self.indices = tf.placeholder(tf.float32, shape=[self.config.batch_size])
+        self.test_h_r_antecedents = tf.placeholder(tf.float32, shape=[self.config.test_batch_size, self.du.max_as_count, self.config.I])
+        self.test_h_r_answers = tf.placeholder(tf.float32, shape=[self.config.test_batch_size, self.config.I])
+        self.test_indices = tf.placeholder(tf.float32, shape=[self.config.test_batch_size])
 
     def h(self, a, m):
+        if a == 0 and m == 0:
+            result = [np.float32(0.0)]*self.config.repr_size
+            return result
         if a=='#':
             a = m
         embed_a = nd.tolist(self.embeddings.get(a[2],default=np.asarray([0.0]*self.config.embedding_size)))
@@ -92,6 +98,7 @@ class Coref_clustter:
         # print matrix_result
         # if len(result)!=self.config.embedding_size:
         #     print len(result)
+        print len(result)
         return result
 
     def r(self, h):
@@ -118,11 +125,16 @@ class Coref_clustter:
         ''' up to here'''
         loss = tf.reduce_sum(tf.map_fn(lambda index: tf.reduce_max(self.mistakes[tf.to_int32(index)]*tf.map_fn(lambda x: 1+self.s(x)-self.s(self.batch_hts[tf.to_int32(index)]), self.batch_HAs[tf.to_int32(index)])), self.indices))
         train_step = tf.train.GradientDescentOptimizer(0.01).minimize(loss)
+        # prediction = tf.map_fn(lambda index: self.test_h_r_antecedents[tf.to_int32(tf.arg_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]), 0))], self.test_indices)
+        prediction = tf.map_fn(lambda index: tf.arg_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]), 0), self.test_indices)
+
+        correct_prediction = tf.equal(prediction, self.test_h_r_answers)
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
         sess = tf.InteractiveSession()
         # Train
         tf.initialize_all_variables().run()
         for i in range(100):
-            print i
+            print "epoch:", i
             # feed = self.du.build_feed_dict(self.config.batch_size * i, self.config.batch_size * (i + 1))
             # loss = tf.reduce_sum(tf.map_fn(lambda index: tf.reduce_max(tf.squeeze(self.mistakes)[index] * tf.map_fn(
             #     lambda x: 1 + self.s(x) - self.s(tf.squeeze(self.hts)[index]), tf.squeeze(self.HAs)[index])),
@@ -161,25 +173,17 @@ class Coref_clustter:
             indices = [w for w in range(self.config.batch_size)]
             assert len(batch_HAs) == len(batch_hts) == len(mistakes)
 
+            if i % 10 == 0:
+                test_r_answers, test_r_antecedents = self.du.get_test_data(self.config.test_batch_size)
+                test_h_r_answers = map(lambda x: self.h(x[0],x[1]),test_r_answers)
+                test_h_r_antecedents = [map(lambda x: self.h(x[0],x[1]), test_r_antecedents_batch) for test_r_antecedents_batch in test_r_antecedents]
+                test_indices = [ti for ti in range(self.config.test_batch_size)]
+                assert len(test_h_r_answers) == len(test_h_r_antecedents) == len(test_indices)
+
+                train_accuracy = accuracy.eval(feed_dict={
+                    self.test_h_r_answers: test_h_r_answers, self.test_h_r_antecedents: test_h_r_antecedents, self.test_indices: test_indices})
+                print train_accuracy
             sess.run(train_step, feed_dict={self.mistakes: mistakes, self.batch_hts: batch_hts, self.batch_HAs: batch_HAs, self.indices: indices})
-            # test_index = self.du.r_indices[-1]
-            # test_mentions = []
-            # test_r = '#'
-            # max_score = 0
-            # max_mention = None
-            # for id in range(len(self.M)):
-            #     if self.M[id][0] == test_index[0]:
-            #         if self.M[id][1] == test_index[1]:
-            #             test_r = self.M[id]
-            #         else:
-            #             test_mentions.append(self.M[id])
-            #
-            # for itm in test_mentions:
-            #     assert test_r!='#'
-            #     score = self.s(self.h(itm, test_r))
-            #     if score>=max_score:
-            #         max_mention = itm
-            # print max_mention[2], test_r[2]
 
 
 

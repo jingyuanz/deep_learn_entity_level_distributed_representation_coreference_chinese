@@ -19,7 +19,9 @@ class DataUtil:
         self.type_dict = {}
         self.embeddings = Embedding.load("./zh.sgns.model.tar.bz2")
         self.max_as_count = 0
-        self.r_indices = []
+        self.test_rs = []
+        self.test_r_answers = []
+        self.test_r_antecedents = []
         self.init_data()
 
     def get_embeddings(self):
@@ -28,6 +30,7 @@ class DataUtil:
     def init_data(self):
         self.build_line_dict()
         self.parse_data()
+        self.compute_r_a_tuples()
         all_words = self.get_all_words()
         # print all_words
         # print self.sentences
@@ -69,7 +72,7 @@ class DataUtil:
         return all_words
 
     def calc_word_average(self, words):
-        average = sum([self.embeddings.get(word,default=np.asarray([0.0]*self.config.embedding_size)) for word in words]) / len(words) * 1.0
+        average = sum([self.embeddings.get(word,default=np.asarray([np.float32(0.0)]*self.config.embedding_size)) for word in words]) / len(words)
         return nd.tolist(average)
 
     def build_line_dict(self):
@@ -139,14 +142,18 @@ class DataUtil:
                                 current_len = len(line_mention)
                                 if current_len>self.max_as_count:
                                     self.max_as_count = current_len
-                            line_mention.append(mention_tup)
                             if w_tup[0] == r:
                                 target_w = words[word_index]
-                                self.r_indices.append((k,word_index))
+                                self.test_rs.append(mention_tup)
                                 target_mention_tup = (k, word_index, target_w[0], target_w[1])
+                                self.test_r_answers.append(target_mention_tup)
+                                self.test_r_antecedents.append(line_mention)
+                                assert len(self.test_r_answers) == len(self.test_r_antecedents) == len(self.test_rs)
                                 self.Ts.append([target_mention_tup])
                             else:
                                 self.Ts.append([self.config.NA])
+                            line_mention.append(mention_tup)
+
                 else:
                     self.sentences.append([])
                     self.sentences_t.append([])
@@ -157,3 +164,15 @@ class DataUtil:
         if start > (len(self.mentions) - self.config.batch_size):
             start = len(self.mentions) - self.config.batch_size
         return self.mentions[start:end], self.Ts[start:end], self.As[start:end]
+
+    def compute_r_a_tuples(self):
+        for i in range(len(self.test_rs)):
+            r = self.test_rs[i]
+            self.test_r_answers[i] = (self.test_r_answers[i],r)
+            self.test_r_antecedents[i] = map(lambda x:(x,r),self.test_r_antecedents[i])
+            padding = [(0,0)]
+            self.test_r_antecedents[i].extend(padding*(self.max_as_count+1-len(self.test_r_antecedents[i])))
+            # print len(self.test_r_antecedents[i]), len(self.test_r_antecedents[i][0])
+
+    def get_test_data(self, size):
+        return self.test_r_answers[-size:], self.test_r_antecedents[-size:]
