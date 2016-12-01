@@ -123,7 +123,7 @@ class Coref_clustter:
     def main(self):
         ''' up to here'''
         self.loss = tf.reduce_sum(tf.map_fn(lambda index: tf.reduce_max(self.mistakes[tf.to_int32(index)]*tf.map_fn(lambda x: 1+self.s(x)-self.s(self.batch_hts[tf.to_int32(index)]), self.batch_HAs[tf.to_int32(index)])), self.indices))
-        train_step = tf.train.GradientDescentOptimizer(0.00001).minimize(self.loss)
+        train_step = tf.train.RMSPropOptimizer(self.config.learning_rate).minimize(self.loss)
         # prediction = tf.map_fn(lambda index: self.test_h_r_antecedents[tf.to_int32(tf.arg_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]), 1))], self.test_indices)
         self.prediction = tf.map_fn(lambda index: tf.to_float(tf.reduce_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]))), self.test_indices)
         self.answers = tf.squeeze(tf.map_fn(lambda x: self.s(x),self.test_h_r_answers))

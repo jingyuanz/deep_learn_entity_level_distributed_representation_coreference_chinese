@@ -175,4 +175,5 @@ class DataUtil:
             # print len(self.test_r_antecedents[i]), len(self.test_r_antecedents[i][0])
 
     def get_test_data(self, size):
-        return self.test_r_answers[-size:], self.test_r_antecedents[-size:]
+        return self.test_r_answers[:size], self.test_r_antecedents[:size]
+        # return self.test_r_answers[-size:], self.test_r_antecedents[-size:]
