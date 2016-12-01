@@ -18,14 +18,14 @@ class Coref_clustter:
         self.config = Config()
         self.du = DataUtil(self.config)
         self.embeddings = self.du.embeddings
-        self.W1 = tf.Variable(tf.zeros([self.config.M1, self.config.I]))
-        self.b1 = tf.Variable(tf.zeros([self.config.M1, 1]))
-        self.W2 = tf.Variable(tf.zeros([self.config.M2, self.config.M1]))
-        self.b2 = tf.Variable(tf.zeros([self.config.M2, 1]))
-        self.W3 = tf.Variable(tf.zeros([self.config.D, self.config.M2]))
-        self.b3 = tf.Variable(tf.zeros([self.config.D, 1]))
-        self.Wm = tf.Variable(tf.zeros([1, self.config.D]))
-        self.bm = tf.Variable(0.0)
+        self.W1 = tf.get_variable("w1",shape=[self.config.M1, self.config.I])
+        self.b1 = tf.get_variable("b1",shape=[self.config.M1, 1])
+        self.W2 = tf.get_variable("w2",shape=[self.config.M2, self.config.M1])
+        self.b2 = tf.get_variable("b2",shape=[self.config.M2, 1])
+        self.W3 = tf.get_variable("w3",shape=[self.config.D, self.config.M2])
+        self.b3 = tf.get_variable("b3",shape=[self.config.D, 1])
+        self.Wm = tf.get_variable("wm",shape=[1, self.config.D])
+        self.bm = tf.get_variable("bm",shape=[1])
         # self.M = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
         # self.As = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
         # self.Ts = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
@@ -98,7 +98,6 @@ class Coref_clustter:
         # print matrix_result
         # if len(result)!=self.config.embedding_size:
         #     print len(result)
-        print len(result)
         return result
 
     def r(self, h):
@@ -123,13 +122,13 @@ class Coref_clustter:
 
     def main(self):
         ''' up to here'''
-        loss = tf.reduce_sum(tf.map_fn(lambda index: tf.reduce_max(self.mistakes[tf.to_int32(index)]*tf.map_fn(lambda x: 1+self.s(x)-self.s(self.batch_hts[tf.to_int32(index)]), self.batch_HAs[tf.to_int32(index)])), self.indices))
-        train_step = tf.train.GradientDescentOptimizer(0.01).minimize(loss)
-        # prediction = tf.map_fn(lambda index: self.test_h_r_antecedents[tf.to_int32(tf.arg_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]), 0))], self.test_indices)
-        prediction = tf.map_fn(lambda index: tf.arg_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]), 0), self.test_indices)
-
-        correct_prediction = tf.equal(prediction, self.test_h_r_answers)
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+        self.loss = tf.reduce_sum(tf.map_fn(lambda index: tf.reduce_max(self.mistakes[tf.to_int32(index)]*tf.map_fn(lambda x: 1+self.s(x)-self.s(self.batch_hts[tf.to_int32(index)]), self.batch_HAs[tf.to_int32(index)])), self.indices))
+        train_step = tf.train.GradientDescentOptimizer(0.00001).minimize(self.loss)
+        # prediction = tf.map_fn(lambda index: self.test_h_r_antecedents[tf.to_int32(tf.arg_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]), 1))], self.test_indices)
+        self.prediction = tf.map_fn(lambda index: tf.to_float(tf.reduce_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]))), self.test_indices)
+        self.answers = tf.squeeze(tf.map_fn(lambda x: self.s(x),self.test_h_r_answers))
+        self.correct_prediction = tf.equal(self.prediction, self.answers)
+        self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
         sess = tf.InteractiveSession()
         # Train
         tf.initialize_all_variables().run()
@@ -173,20 +172,22 @@ class Coref_clustter:
             indices = [w for w in range(self.config.batch_size)]
             assert len(batch_HAs) == len(batch_hts) == len(mistakes)
 
-            if i % 10 == 0:
-                test_r_answers, test_r_antecedents = self.du.get_test_data(self.config.test_batch_size)
-                test_h_r_answers = map(lambda x: self.h(x[0],x[1]),test_r_answers)
-                test_h_r_antecedents = [map(lambda x: self.h(x[0],x[1]), test_r_antecedents_batch) for test_r_antecedents_batch in test_r_antecedents]
-                test_indices = [ti for ti in range(self.config.test_batch_size)]
-                assert len(test_h_r_answers) == len(test_h_r_antecedents) == len(test_indices)
+            test_r_answers, test_r_antecedents = self.du.get_test_data(self.config.test_batch_size)
+            test_h_r_answers = map(lambda x: self.h(x[0],x[1]),test_r_answers)
+            test_h_r_antecedents = [map(lambda x: self.h(x[0],x[1]), test_r_antecedents_batch) for test_r_antecedents_batch in test_r_antecedents]
+            test_indices = [ti for ti in range(self.config.test_batch_size)]
+            assert len(test_h_r_answers) == len(test_h_r_antecedents) == len(test_indices)
 
-                train_accuracy = accuracy.eval(feed_dict={
-                    self.test_h_r_answers: test_h_r_answers, self.test_h_r_antecedents: test_h_r_antecedents, self.test_indices: test_indices})
-                print train_accuracy
-            sess.run(train_step, feed_dict={self.mistakes: mistakes, self.batch_hts: batch_hts, self.batch_HAs: batch_HAs, self.indices: indices})
-
-
-
+            # train_accuracy = self.accuracy.eval(feed_dict={
+            #     self.test_h_r_answers: test_h_r_answers, self.test_h_r_antecedents: test_h_r_antecedents, self.test_indices: test_indices})
+            # print train_accuracy
+            a,b,c,d,e,f = sess.run([self.loss,train_step, self.prediction, self.answers, self.correct_prediction, self.accuracy], feed_dict={self.mistakes: mistakes, self.batch_hts: batch_hts, self.batch_HAs: batch_HAs, self.indices: indices,self.test_h_r_answers: test_h_r_answers, self.test_h_r_antecedents: test_h_r_antecedents, self.test_indices: test_indices})
+            print 'prediction_maxs: \n', c
+            print 'answer_maxs: \n', d
+            print 'correct/incorrect: \n', e
+            print 'accuracy: \n', f
+            print 'loss: \n',a
+            print
 
 
 
