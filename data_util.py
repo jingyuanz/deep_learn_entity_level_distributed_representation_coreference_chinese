@@ -21,6 +21,7 @@ class DataUtil:
         self.max_as_count = 0
         self.test_rs = []
         self.test_r_answers = []
+        self.test_answer_indices = []
         self.test_r_antecedents = []
         self.t_count = 0
         self.t_dict = {}
@@ -267,14 +268,19 @@ class DataUtil:
     def compute_r_a_tuples(self):
         for i in range(len(self.test_rs)):
             r = self.test_rs[i]
-            self.test_r_answers[i] = (self.test_r_answers[i],r)
+            # self.test_r_answers[i] = (self.test_r_answers[i],r)
+            for k in range(len(self.test_r_antecedents[i])):
+                test_ante = self.test_r_antecedents[i][k]
+                if test_ante!='#' and self.mention_equals(test_ante, self.test_r_answers[i]):
+                    self.test_answer_indices.append(k)
+
+
             self.test_r_antecedents[i] = map(lambda x:(x,r),self.test_r_antecedents[i])
             padding = [(self.config.NA,r)]
             self.test_r_antecedents[i].extend(padding*(self.max_as_count+1-len(self.test_r_antecedents[i])))
             # print self.test_r_answers[i][0][2], self.test_r_answers[i][1][2]
             # print len(self.test_r_antecedents[i]), len(self.test_r_antecedents[i][0])
-        print self.test_r_antecedents
 
     def get_test_data(self, size):
         # return self.test_r_answers[:size], self.test_r_antecedents[:size]
-        return self.test_r_answers[-size:], self.test_r_antecedents[-size:]
+        return self.test_answer_indices[-size:], self.test_r_antecedents[-size:]
