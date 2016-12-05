@@ -6,6 +6,7 @@ from polyglot.text import Text, Word
 import numpy as np
 from numpy import ndarray as nd
 import copy
+import random
 
 class DataUtil:
     def __init__(self, config):
@@ -16,12 +17,13 @@ class DataUtil:
         self.mentions = []
         self.sentences = []
         self.all_word_average = 0
-        self.type_dict = {}
         self.embeddings = Embedding.load("./zh.sgns.model.tar.bz2")
         self.max_as_count = 0
         self.test_rs = []
         self.test_r_answers = []
         self.test_r_antecedents = []
+        self.t_count = 0
+        self.t_dict = {}
         self.r_list = []
         self.init_data()
 
@@ -43,13 +45,34 @@ class DataUtil:
         return [(mention[1] + 1) / m_count * 0.1]
 
     def distance_mentions(self, m1, m2):
-        return [abs(m1[1] - m2[1])]
+        # [0,1,2,3,4,5-7,8-15,16-31,32-63,64+]
+        d = abs(m2[1] - m1[1])
+        if d == 0:
+            return [1,0,0,0,0,0,0,0,0,0]
+        elif d==1:
+            return [0,1,0,0,0,0,0,0,0,0]
+        elif d==2:
+            return [0,0,1,0,0,0,0,0,0,0]
+        elif d==3:
+            return [0,0,0,1,0,0,0,0,0,0]
+        elif d==4:
+            return [0,0,0,0,1,0,0,0,0,0]
+        elif d>=5 and d<=7:
+            return [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+        elif d>=8 and d<=15:
+            return [0,0,0,0,0,0,1,0,0,0]
+        elif d>=16 and d<=31:
+            return [0,0,0,0,0,0,0,1,0,0]
+        elif d>=32 and d<=63:
+            return [0,0,0,0,0,0,0,0,1,0]
+        else:
+            return [0,0,0,0,0,0,0,0,0,1]
 
     def mention_equals(self, m1, m2):
         return m1[0] == m2[0] and m1[1] == m2[1] and m1[2] == m2[2] and m1[3] == m2[3]
 
     def distance_intervening_mentions(self, m1, m2):
-        c = 0
+        d = 0
         start = False
         for m in self.mentions:
             if self.mention_equals(m, m1):
@@ -57,8 +80,28 @@ class DataUtil:
             if self.mention_equals(m, m2):
                 break
             if start:
-                c += 1
-        return [c]
+                d += 1
+
+        if d == 0:
+            return [1,0,0,0,0,0,0,0,0,0]
+        elif d==1:
+            return [0,1,0,0,0,0,0,0,0,0]
+        elif d==2:
+            return [0,0,1,0,0,0,0,0,0,0]
+        elif d==3:
+            return [0,0,0,1,0,0,0,0,0,0]
+        elif d==4:
+            return [0,0,0,0,1,0,0,0,0,0]
+        elif d>=5 and d<=7:
+            return [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+        elif d>=8 and d<=15:
+            return [0,0,0,0,0,0,1,0,0,0]
+        elif d>=16 and d<=31:
+            return [0,0,0,0,0,0,0,1,0,0]
+        elif d>=32 and d<=63:
+            return [0,0,0,0,0,0,0,0,1,0]
+        else:
+            return [0,0,0,0,0,0,0,0,0,1]
 
     def same_speaker(self, m1, m2):
         return [1]
@@ -72,7 +115,7 @@ class DataUtil:
         all_words = []
         for sent in self.sentences:
             if sent:
-                all_words+=sent
+                all_words += sent
         return all_words
 
     def calc_word_average(self, words):
@@ -86,7 +129,7 @@ class DataUtil:
         with open(self.config.result_path) as f:
             lines = f.readlines()
             for line in lines:
-                line_num, word_index = line.split()
+                line_num, word_index = line.strip().split()
                 self.line_dict[int(line_num)] = int(word_index)
 
     def find_first_word_embedding(self, mention):
@@ -151,14 +194,15 @@ class DataUtil:
         # print proced_embed, flatten(proced_embed)
         # assert mention[2] in [word[0] for word in line if word!="None"]
 
-        print "line: ", ''.join([word[0] for word in line if word!="None"])
-        print "origin: ", line
-        print "len: ", len(line)
-        print "mention: ", mention[2]
-        print "index: ", mention[0], mention[1]
-        print "proceding: ", proceding
-        print "embed: ", proced_embed
-        print "len_embed", len(proced_embed)
+        # print "line: ", ''.join([word[0] for word in line if word!="None"])
+        # print "origin: ", line
+        # print "len: ", len(line)
+        # print "mention: ", mention[2]
+        # print "index: ", mention[0], mention[1]
+        # print "proceding: ", proceding
+        # print "embed: ", proced_embed
+        # print "len_embed", len(proced_embed)
+        # print
         return flatten(proced_embed)
 
     def average_sent(self, mention):
@@ -175,14 +219,22 @@ class DataUtil:
                 words = line[0].split()
                 self.r_list.append(line[1].strip())
                 self.sentences.append([tuple(word.split('/')) for word in words])
-            for k in range(len(self.line_dict.items())):
-                line_num, word_index = self.line_dict.items()[k]
+            for line_num, word_index in self.line_dict.items():
+                print line_num, word_index
+                # if line_num==8198:
+                #     for w_8198 in self.sentences[line_num]:
+                #         print w_8198[0],
+                #     print self.r_list[8198], word_index, len(self.sentences[line_num])
                 if word_index > -1:
                     line_mention = []
                     words = self.sentences[line_num]
                     r = self.r_list[line_num]
                     for i in range(len(words)):
                         w_tup = words[i]
+                        word_type = w_tup[1]
+                        if not self.t_dict.has_key(word_type):
+                            self.t_dict[word_type] = self.t_count
+                            self.t_count += 1
                         if 'n' in w_tup[1] or w_tup[1] == 't' or w_tup[1]=='r':
                             mention_tup = (line_num, i, w_tup[0], w_tup[1])
                             self.mentions.append(mention_tup)
@@ -196,7 +248,7 @@ class DataUtil:
                             if w_tup[0] == r:
                                 target_w = words[word_index]
                                 self.test_rs.append(mention_tup)
-                                target_mention_tup = (k, word_index, target_w[0], target_w[1])
+                                target_mention_tup = (line_num, word_index, target_w[0], target_w[1])
                                 self.test_r_answers.append(target_mention_tup)
                                 self.test_r_antecedents.append(line_mention)
                                 assert len(self.test_r_answers) == len(self.test_r_antecedents) == len(self.test_rs)
@@ -217,11 +269,12 @@ class DataUtil:
             r = self.test_rs[i]
             self.test_r_answers[i] = (self.test_r_answers[i],r)
             self.test_r_antecedents[i] = map(lambda x:(x,r),self.test_r_antecedents[i])
-            padding = [(0,0)]
+            padding = [(self.config.NA,r)]
             self.test_r_antecedents[i].extend(padding*(self.max_as_count+1-len(self.test_r_antecedents[i])))
             # print self.test_r_answers[i][0][2], self.test_r_answers[i][1][2]
             # print len(self.test_r_antecedents[i]), len(self.test_r_antecedents[i][0])
+        print self.test_r_antecedents
 
     def get_test_data(self, size):
-        return self.test_r_answers[:size], self.test_r_antecedents[:size]
-        # return self.test_r_answers[-size:], self.test_r_antecedents[-size:]
+        # return self.test_r_answers[:size], self.test_r_antecedents[:size]
+        return self.test_r_answers[-size:], self.test_r_antecedents[-size:]
