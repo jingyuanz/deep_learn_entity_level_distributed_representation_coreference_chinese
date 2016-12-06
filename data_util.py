@@ -42,7 +42,7 @@ class DataUtil:
 
     def mention_pos(self, mention):
         line = self.sentences[mention[0]]
-        m_count = len([word[0] for word in line if word and ('n' in word[1] or word[1] == 't' or word[1] == 'r')])
+        m_count = len([word[0] for word in line if word and ('n' in word[1] or word[1] in self.config.mention_types)])
         return [(mention[1] + 1) / m_count * 0.1]
 
     def distance_mentions(self, m1, m2):
@@ -218,10 +218,18 @@ class DataUtil:
             for line in lines:
                 line = line.decode('utf-8').strip().split('---------->')
                 words = line[0].split()
-                self.r_list.append(line[1].strip())
-                self.sentences.append([tuple(word.split('/')) for word in words])
+                r = line[1].strip()
+                tups = [tuple(word.split('/')) for word in words]
+                target_r = ''
+                for tup_i in range(len(tups)):
+                    if tups[tup_i][1] == 'r' and tups[tup_i][0] == r:
+                        target_r = (tups[tup_i][0], tup_i)
+                assert target_r
+                self.r_list.append(target_r)
+                self.sentences.append(tups)
+
             for line_num, word_index in self.line_dict.items():
-                print line_num, word_index
+                # print line_num, word_index
                 # if line_num==8198:
                 #     for w_8198 in self.sentences[line_num]:
                 #         print w_8198[0],
@@ -236,7 +244,7 @@ class DataUtil:
                         if not self.t_dict.has_key(word_type):
                             self.t_dict[word_type] = self.t_count
                             self.t_count += 1
-                        if 'n' in w_tup[1] or w_tup[1] == 't' or w_tup[1]=='r':
+                        if 'n' in w_tup[1] or w_tup[1] in self.config.mention_types:
                             mention_tup = (line_num, i, w_tup[0], w_tup[1])
                             self.mentions.append(mention_tup)
                             if not line_mention:
@@ -246,16 +254,17 @@ class DataUtil:
                                 current_len = len(line_mention)
                                 if current_len>self.max_as_count:
                                     self.max_as_count = current_len
-                            if w_tup[0] == r:
+                            if w_tup[0] == r[0] and i == r[1]:
                                 target_w = words[word_index]
                                 self.test_rs.append(mention_tup)
                                 target_mention_tup = (line_num, word_index, target_w[0], target_w[1])
+                                # print target_mention_tup
                                 self.test_r_answers.append(target_mention_tup)
                                 self.test_r_antecedents.append(line_mention)
                                 assert len(self.test_r_answers) == len(self.test_r_antecedents) == len(self.test_rs)
-                                self.Ts.append([target_mention_tup])
+                                self.Ts.append(target_mention_tup)
                             else:
-                                self.Ts.append([self.config.NA])
+                                self.Ts.append(self.config.NA)
                             line_mention.append(mention_tup)
 
     def build_feed_dict(self, start, end):
@@ -268,11 +277,20 @@ class DataUtil:
     def compute_r_a_tuples(self):
         for i in range(len(self.test_rs)):
             r = self.test_rs[i]
+            ans = self.test_r_answers[i]
+            found = False
             # self.test_r_answers[i] = (self.test_r_answers[i],r)
             for k in range(len(self.test_r_antecedents[i])):
                 test_ante = self.test_r_antecedents[i][k]
-                if test_ante!='#' and self.mention_equals(test_ante, self.test_r_answers[i]):
+
+                if test_ante!=self.config.NA and self.mention_equals(test_ante, ans):
+                    found = True
+                    # print test_ante
                     self.test_answer_indices.append(k)
+            if not found:
+                print r[0], r[1], r[2]
+                print ans[0], ans[1], ans[2], ans[3]
+
 
 
             self.test_r_antecedents[i] = map(lambda x:(x,r),self.test_r_antecedents[i])
