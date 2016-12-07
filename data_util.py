@@ -42,7 +42,7 @@ class DataUtil:
 
     def mention_pos(self, mention):
         line = self.sentences[mention[0]]
-        m_count = len([word[0] for word in line if word and ('n' in word[1] or word[1] in self.config.mention_types)])
+        m_count = len([word[0] for word in line if word and ('n' in word[1] or word[1] == 't')])
         return [(mention[1] + 1) / m_count * 0.1]
 
     def distance_mentions(self, m1, m2):
@@ -234,38 +234,45 @@ class DataUtil:
                 #     for w_8198 in self.sentences[line_num]:
                 #         print w_8198[0],
                 #     print self.r_list[8198], word_index, len(self.sentences[line_num])
-                if word_index > -1:
+                target_mention_tup = (line_num, word_index, self.sentences[line_num][word_index][0], self.sentences[line_num][word_index][1])
+                if word_index > -1 and ('n' in target_mention_tup[3] or target_mention_tup[3] == 't') and len(self.sentences[line_num]) <= 50:
                     line_mention = []
                     words = self.sentences[line_num]
                     r = self.r_list[line_num]
                     for i in range(len(words)):
                         w_tup = words[i]
                         word_type = w_tup[1]
+                        word_span = w_tup[0]
                         if not self.t_dict.has_key(word_type):
                             self.t_dict[word_type] = self.t_count
                             self.t_count += 1
-                        if 'n' in w_tup[1] or w_tup[1] in self.config.mention_types:
-                            mention_tup = (line_num, i, w_tup[0], w_tup[1])
+                        if 'n' in word_type or word_type == 't':
+                            mention_tup = (line_num, i, word_span, word_type)
                             self.mentions.append(mention_tup)
-                            if not line_mention:
-                                self.As.append([self.config.NA])
-                            else:
-                                self.As.append(line_mention)
-                                current_len = len(line_mention)
-                                if current_len>self.max_as_count:
-                                    self.max_as_count = current_len
-                            if w_tup[0] == r[0] and i == r[1]:
-                                target_w = words[word_index]
-                                self.test_rs.append(mention_tup)
-                                target_mention_tup = (line_num, word_index, target_w[0], target_w[1])
+                            line_mention.append(mention_tup)
+                            # if not line_mention:
+                            #     self.As.append([self.config.NA])
+                            # else:
+                            #     self.As.append(copy.copy(line_mention))
+                            #     current_len = len(line_mention)
+                            #     if current_len>self.max_as_count:
+                            #         self.max_as_count = current_len
+                        elif word_span == r[0] and i == r[1]:
+                            r_tup = (line_num, i, word_span, 'r')
+                            # print "r->",r_tup, r_tup[2]
+                            if target_mention_tup[1] < i:
+                                self.test_rs.append(r_tup)
                                 # print target_mention_tup
                                 self.test_r_answers.append(target_mention_tup)
-                                self.test_r_antecedents.append(line_mention)
+                                # print "target->", target_mention_tup, target_mention_tup[2]
+                                if line_mention:
+                                    if len(line_mention)>self.max_as_count:
+                                        self.max_as_count = len(line_mention)
+                                    self.test_r_antecedents.append(copy.copy(line_mention))
+                                else:
+                                    print "shud not reach here", line_num
+                                    self.test_r_antecedents.append([self.config.NA])
                                 assert len(self.test_r_answers) == len(self.test_r_antecedents) == len(self.test_rs)
-                                self.Ts.append(target_mention_tup)
-                            else:
-                                self.Ts.append(self.config.NA)
-                            line_mention.append(mention_tup)
 
     def build_feed_dict(self, start, end):
         if end > len(self.mentions):
@@ -293,12 +300,16 @@ class DataUtil:
 
 
 
-            self.test_r_antecedents[i] = map(lambda x:(x,r),self.test_r_antecedents[i])
-            padding = [(self.config.NA,r)]
+            # self.test_r_antecedents[i] = map(lambda x:(x,r),self.test_r_antecedents[i])
+            padding = [self.config.NA]
             self.test_r_antecedents[i].extend(padding*(self.max_as_count+1-len(self.test_r_antecedents[i])))
             # print self.test_r_answers[i][0][2], self.test_r_answers[i][1][2]
             # print len(self.test_r_antecedents[i]), len(self.test_r_antecedents[i][0])
 
-    def get_test_data(self, size):
+    def get_test_data(self, size, mode):
+        if mode=='test':
         # return self.test_r_answers[:size], self.test_r_antecedents[:size]
-        return self.test_answer_indices[-size:], self.test_r_antecedents[-size:]
+            return self.test_rs[-size:], self.test_answer_indices[-size:], self.test_r_antecedents[-size:]
+        # return self.test_answer_indices, self.test_r_antecedents
+        elif mode == 'train':
+            return self.test_rs[:size], self.test_answer_indices[:size], self.test_r_antecedents[:size]

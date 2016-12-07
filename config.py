@@ -14,7 +14,6 @@ class Config:
         self.a_fa = 0.4
         self.a_wl = 1.0
         self.NA = '#'
-        self.test_batch_size = 100
-        self.mention_types = ['a','b','j','m','l','Ng','i','s','r','t']
+        self.test_batch_size = 200
 
 
