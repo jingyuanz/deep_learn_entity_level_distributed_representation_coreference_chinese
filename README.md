@@ -26,3 +26,5 @@ training accuracy 99% (2000+ stories)
 testing accuracy 65.５％ (200+ stories)
 
 still improving the loss function, (since I changed the model)
+
+by Jingyuan Zhang, at Kalamodo, Suzhou
