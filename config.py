@@ -4,7 +4,7 @@ class Config:
         self.result_path = './results.txt'
         self.embedding_size = 256
         self.learning_rate = 1e-4
-        self.batch_size = 128
+        self.batch_size = 32
         self.I = 5147
         self.M1 = 1000
         self.M2 = 500

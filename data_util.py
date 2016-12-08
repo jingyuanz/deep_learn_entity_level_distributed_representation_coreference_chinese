@@ -6,6 +6,7 @@ from polyglot.text import Text, Word
 import numpy as np
 from numpy import ndarray as nd
 import copy
+import sys
 import random
 
 class DataUtil:
@@ -306,10 +307,145 @@ class DataUtil:
             # print self.test_r_answers[i][0][2], self.test_r_answers[i][1][2]
             # print len(self.test_r_antecedents[i]), len(self.test_r_antecedents[i][0])
 
+    def h(self, a, m):
+        if a == 0 and m == 0:
+            result = [np.float32(0.0)]*self.config.I
+            return result
+        if a=='#':
+            a = m
+        embed_a = nd.tolist(self.embeddings.get(a[2],a[3],default=np.asarray([0.0]*self.config.embedding_size)))
+        embed_m = nd.tolist(self.embeddings.get(m[2],m[3],default=np.asarray([0.0]*self.config.embedding_size)))
+        # print len(embed_m)
+        first_aw_embed = nd.tolist(self.find_first_word_embedding(a))
+        # print len(first_aw_embed)
+        first_mw_embed = nd.tolist(self.find_first_word_embedding(m))
+        # print len(first_mw_embed)
+        last_aw_embed = nd.tolist(self.find_last_word_embedding(a))
+        # print len(last_aw_embed)
+        last_mw_embed = nd.tolist(self.find_last_word_embedding(m))
+        # print len(last_mw_embed)
+        proced2_a_embed = self.find_proceding_embeddings(a, 2)
+        follow2_a_embed = self.find_following_embeddings(a, 2)
+
+        proced2_m_embed = self.find_proceding_embeddings(m, 2)
+        follow2_m_embed = self.find_following_embeddings(m, 2)
+
+        avg5f_a = self.calc_word_average(self.find_following(a, 5))
+        # print len(avg5f_a)
+        avg5p_a = self.calc_word_average(self.find_proceding(a, 5))
+        # print len(avg5p_a)
+        avg5f_m = self.calc_word_average(self.find_following(m, 5))
+        # print len(avg5f_m)
+        avg5p_m = self.calc_word_average(self.find_proceding(m, 5))
+        # print len(avg5p_m)
+        avgsent_a = self.average_sent(a)
+        # print len(avgsent_a)
+        avgsent_m = self.average_sent(m)
+        # print len(avgsent_m)
+        avg_all = [self.all_word_average]
+        # print len(avg_all)
+        type_a = [self.t_dict[a[3]]]  # self.type_dict[a[3]]
+        type_m = [self.t_dict[m[3]]]  # self.type_dict[m[3]]
+        mention_pos_a = self.mention_pos(a)
+        mention_pos_m = self.mention_pos(m)
+
+        mention_len_a = [len(a[2])]
+        mention_len_m = [len(m[2])]
+
+        distance = self.distance_mentions(a, m)
+        distance_m = self.distance_intervening_mentions(a, m)
+
+        result = embed_a + first_aw_embed + last_aw_embed + proced2_a_embed + follow2_a_embed + avg5f_a + avg5p_a + avgsent_a + type_a + mention_pos_a + mention_len_a + embed_m + first_mw_embed + last_mw_embed + proced2_m_embed + follow2_m_embed + avg5f_m + avg5p_m + avgsent_m + type_m + mention_pos_m + mention_len_m + avg_all + distance + distance_m
+        if len(result)!=self.config.I:
+            print len(proced2_a_embed)
+            print len(follow2_a_embed)
+            print len(proced2_m_embed)
+            print len(follow2_m_embed)
+
+            print len(result) #4873
+            print
+            sys.exit(0)
+        # print matrix_result
+        # if len(result)!=self.config.embedding_size:
+        #     print len(result)
+        return result
+
     def get_test_data(self, size, mode):
         if mode=='test':
         # return self.test_r_answers[:size], self.test_r_antecedents[:size]
-            return self.test_rs[-size:], self.test_answer_indices[-size:], self.test_r_antecedents[-size:]
+            rs_batch = self.test_rs[-size:]
+            r_answers = self.test_answer_indices[-size:]
+            r_antecedents = self.test_r_antecedents[-size:]
         # return self.test_answer_indices, self.test_r_antecedents
-        elif mode == 'train':
-            return self.test_rs[:size], self.test_answer_indices[:size], self.test_r_antecedents[:size]
+        else:
+            rs_batch = self.test_rs[:size]
+            r_answers = self.test_answer_indices[:size]
+            r_antecedents = self.test_r_antecedents[:size]
+
+        h_r_antecedents = []
+        for combo_i in range(len(rs_batch)):
+            combo_r = rs_batch[combo_i]
+            combo_as = r_antecedents[combo_i]
+            combos = [self.h(combo_a, combo_r) for combo_a in combo_as]
+            h_r_antecedents.append(combos)
+
+        return rs_batch, r_answers, h_r_antecedents
+
+
+
+
+
+    def mistake(self, a, T):
+        if a == self.config.NA and T != self.config.NA:
+            return self.config.a_fn
+        if a != self.config.NA and T == self.config.NA:
+            return self.config.a_fa
+        if a != self.config.NA and a != T:
+            return self.config.a_wl
+        if a == T:
+            return 0
+
+    def encode_mention_pairs(self, batch_Rs, batch_Ts, batch_As):
+        batch_HTs = []
+        for j in range(len(batch_Ts)):
+            t = batch_Ts[j]
+            r = batch_Rs[j]
+            ht = self.h(t, r)
+            batch_HTs.append(ht)
+        # hts = np.array(hts)
+        batch_HAs = []
+        for z in range(len(batch_Rs)):
+            As = batch_As[z]
+            r = batch_Rs[z]
+            HA = [self.h(a, r) for a in As]
+            padding = [np.float32(0.0)] * self.config.I
+            HA.extend([padding] * (self.max_as_count - len(HA)))
+            batch_HAs.append(HA)
+        return batch_HAs, batch_HTs
+
+    def get_shuffled_data_set(self):
+
+        random_indices = [randi for randi in range(len(self.test_rs) - self.config.test_batch_size)]
+        random.shuffle(random_indices)
+        Rs = []
+        As = []
+        Ts = []
+        Ans_indices = []
+        for rand_i in random_indices:
+            Rs.append(self.test_rs[rand_i])
+            As.append(self.test_r_antecedents[rand_i])
+            Ts.append(self.test_r_answers[rand_i])
+            Ans_indices.append(self.test_answer_indices[rand_i])
+
+        mistakes = []
+
+        for k in range(len(Ts)):
+            T = Ts[k]
+            A = As[k]
+            mistake = [np.float32(self.mistake(a, T)) for a in A]
+            mistake.extend([np.float32(0.0)] * (self.max_as_count - len(mistake)))
+            mistakes.append(mistake)
+
+        return Rs, As, Ts, mistakes, Ans_indices
+
+
