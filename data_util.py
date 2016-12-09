@@ -1,4 +1,4 @@
-# coding=utf-8
+# -*- coding: utf-8 -*-
 from compiler.ast import flatten
 import polyglot
 from polyglot.mapping import Embedding
@@ -7,18 +7,23 @@ import numpy as np
 from numpy import ndarray as nd
 import copy
 import sys
+import os
 import random
+import time
+from config import Config
+import pickle
+from six import PY2
+from embedding import Embedding
+
 
 class DataUtil:
     def __init__(self, config):
         self.config = config
         self.line_dict = {}
-        self.Ts = []
-        self.As = []
         self.mentions = []
         self.sentences = []
         self.all_word_average = 0
-        self.embeddings = Embedding.load("./zh.sgns.model.tar.bz2")
+        self.embeddings = Embedding()
         self.max_as_count = 0
         self.test_rs = []
         self.test_r_answers = []
@@ -27,19 +32,25 @@ class DataUtil:
         self.t_count = 0
         self.t_dict = {}
         self.r_list = []
+        self.data = None
         self.init_data()
 
     def get_embeddings(self):
         return self.embeddings
 
     def init_data(self):
-        self.build_line_dict()
-        self.parse_data()
-        self.compute_r_a_tuples()
-        all_words = self.get_all_words()
-        # print all_words
-        # print self.sentences
-        self.calc_word_average(all_words)
+        if os.path.exists(self.config.data_pkl_path):
+            pkl_file = open(self.config.data_pkl_path, 'rb')
+            self.data = pickle.load(pkl_file)
+            self.max_as_count = len(self.data['mistake_lists'][0])
+            pkl_file.close()
+            print 'load pkl finished'
+        else:
+            self.build_line_dict()
+            self.parse_data()
+            self.compute_r_a_tuples()
+            all_words = self.get_all_words()
+            self.calc_word_average(all_words)
 
     def mention_pos(self, mention):
         line = self.sentences[mention[0]]
@@ -105,9 +116,6 @@ class DataUtil:
         else:
             return [0,0,0,0,0,0,0,0,0,1]
 
-    def same_speaker(self, m1, m2):
-        return [1]
-
     def is_overlap(self, m1, m2):
         if m1[2] == m2[2]:
             return [1]
@@ -151,6 +159,7 @@ class DataUtil:
         for i in range(word_num):
             line.append('')
         following = line[word_index + 1:word_index + word_num + 1]
+        del line
         return following
 
     def find_proceding(self, mention, word_num):
@@ -160,8 +169,8 @@ class DataUtil:
         for i in range(word_num):
             line = [''] + line
         proceding = line[word_index:word_index+word_num]
+        del line
         return proceding
-
 
     def find_following_embeddings(self, mention, word_num):
 
@@ -177,7 +186,7 @@ class DataUtil:
                 follow_embed.append([0.0]*self.config.embedding_size)
             else:
                 follow_embed.append(nd.tolist(self.embeddings.get(follow[0], follow[1], default=np.asarray([0.0]*self.config.embedding_size))))
-        # print follow_embed, flatten(follow_embed)
+        del line
         return flatten(follow_embed)
 
     def find_proceding_embeddings(self, mention, word_num):
@@ -193,18 +202,7 @@ class DataUtil:
                 proced_embed.append([0.0]*self.config.embedding_size)
             else:
                 proced_embed.append(nd.tolist(self.embeddings.get(proced[0], proced[1], default=np.asarray([0.0]*self.config.embedding_size))))
-        # print proced_embed, flatten(proced_embed)
-        # assert mention[2] in [word[0] for word in line if word!="None"]
-
-        # print "line: ", ''.join([word[0] for word in line if word!="None"])
-        # print "origin: ", line
-        # print "len: ", len(line)
-        # print "mention: ", mention[2]
-        # print "index: ", mention[0], mention[1]
-        # print "proceding: ", proceding
-        # print "embed: ", proced_embed
-        # print "len_embed", len(proced_embed)
-        # print
+        del line
         return flatten(proced_embed)
 
     def average_sent(self, mention):
@@ -230,11 +228,7 @@ class DataUtil:
                 self.sentences.append(tups)
 
             for line_num, word_index in self.line_dict.items():
-                # print line_num, word_index
-                # if line_num==8198:
-                #     for w_8198 in self.sentences[line_num]:
-                #         print w_8198[0],
-                #     print self.r_list[8198], word_index, len(self.sentences[line_num])
+
                 target_mention_tup = (line_num, word_index, self.sentences[line_num][word_index][0], self.sentences[line_num][word_index][1])
                 if word_index > -1 and ('n' in target_mention_tup[3] or target_mention_tup[3] == 't') and len(self.sentences[line_num]) <= 50:
                     line_mention = []
@@ -251,21 +245,12 @@ class DataUtil:
                             mention_tup = (line_num, i, word_span, word_type)
                             self.mentions.append(mention_tup)
                             line_mention.append(mention_tup)
-                            # if not line_mention:
-                            #     self.As.append([self.config.NA])
-                            # else:
-                            #     self.As.append(copy.copy(line_mention))
-                            #     current_len = len(line_mention)
-                            #     if current_len>self.max_as_count:
-                            #         self.max_as_count = current_len
+
                         elif word_span == r[0] and i == r[1]:
                             r_tup = (line_num, i, word_span, 'r')
-                            # print "r->",r_tup, r_tup[2]
                             if target_mention_tup[1] < i:
                                 self.test_rs.append(r_tup)
-                                # print target_mention_tup
                                 self.test_r_answers.append(target_mention_tup)
-                                # print "target->", target_mention_tup, target_mention_tup[2]
                                 if line_mention:
                                     if len(line_mention)>self.max_as_count:
                                         self.max_as_count = len(line_mention)
@@ -275,37 +260,20 @@ class DataUtil:
                                     self.test_r_antecedents.append([self.config.NA])
                                 assert len(self.test_r_answers) == len(self.test_r_antecedents) == len(self.test_rs)
 
-    def build_feed_dict(self, start, end):
-        if end > len(self.mentions):
-            end = len(self.mentions)
-        if start > (len(self.mentions) - self.config.batch_size):
-            start = len(self.mentions) - self.config.batch_size
-        return self.mentions[start:end], self.Ts[start:end], self.As[start:end]
-
     def compute_r_a_tuples(self):
         for i in range(len(self.test_rs)):
             r = self.test_rs[i]
             ans = self.test_r_answers[i]
             found = False
-            # self.test_r_answers[i] = (self.test_r_answers[i],r)
             for k in range(len(self.test_r_antecedents[i])):
                 test_ante = self.test_r_antecedents[i][k]
 
                 if test_ante!=self.config.NA and self.mention_equals(test_ante, ans):
                     found = True
-                    # print test_ante
                     self.test_answer_indices.append(k)
             if not found:
                 print r[0], r[1], r[2]
                 print ans[0], ans[1], ans[2], ans[3]
-
-
-
-            # self.test_r_antecedents[i] = map(lambda x:(x,r),self.test_r_antecedents[i])
-            padding = [self.config.NA]
-            self.test_r_antecedents[i].extend(padding*(self.max_as_count+1-len(self.test_r_antecedents[i])))
-            # print self.test_r_answers[i][0][2], self.test_r_answers[i][1][2]
-            # print len(self.test_r_antecedents[i]), len(self.test_r_antecedents[i][0])
 
     def h(self, a, m):
         if a == 0 and m == 0:
@@ -362,22 +330,27 @@ class DataUtil:
             print len(proced2_m_embed)
             print len(follow2_m_embed)
 
-            print len(result) #4873
+            print len(result)
             print
             sys.exit(0)
-        # print matrix_result
-        # if len(result)!=self.config.embedding_size:
-        #     print len(result)
+
         return result
 
     def get_test_data(self, size, mode):
-        if mode=='test':
-        # return self.test_r_answers[:size], self.test_r_antecedents[:size]
+
+        if mode == 'test':
+            if self.data:
+                r_answers, h_r_antecedents = self.data['answer_indices'][-size:], self.data['encoded_anted_lists'][-size:]
+                return r_answers, h_r_antecedents
             rs_batch = self.test_rs[-size:]
             r_answers = self.test_answer_indices[-size:]
             r_antecedents = self.test_r_antecedents[-size:]
-        # return self.test_answer_indices, self.test_r_antecedents
+
         else:
+            if self.data:
+                r_answers, h_r_antecedents = self.data['answer_indices'][:size], self.data['encoded_anted_lists'][:size]
+                return r_answers, h_r_antecedents
+
             rs_batch = self.test_rs[:size]
             r_answers = self.test_answer_indices[:size]
             r_antecedents = self.test_r_antecedents[:size]
@@ -387,13 +360,11 @@ class DataUtil:
             combo_r = rs_batch[combo_i]
             combo_as = r_antecedents[combo_i]
             combos = [self.h(combo_a, combo_r) for combo_a in combo_as]
+            padding = [np.float32(0.0)] * self.config.I
+            combos.extend([padding] * (self.max_as_count - len(combos)))
             h_r_antecedents.append(combos)
 
-        return rs_batch, r_answers, h_r_antecedents
-
-
-
-
+        return r_answers, h_r_antecedents
 
     def mistake(self, a, T):
         if a == self.config.NA and T != self.config.NA:
@@ -406,25 +377,36 @@ class DataUtil:
             return 0
 
     def encode_mention_pairs(self, batch_Rs, batch_Ts, batch_As):
-        batch_HTs = []
-        for j in range(len(batch_Ts)):
-            t = batch_Ts[j]
-            r = batch_Rs[j]
-            ht = self.h(t, r)
-            batch_HTs.append(ht)
-        # hts = np.array(hts)
+        if self.data:
+            return batch_As, batch_Ts
+        # batch_HTs = []
+        # for j in range(len(batch_Ts)):
+        #     t = batch_Ts[j]
+        #     r = batch_Rs[j]
+        #     ht = self.h(t, r)
+        #     batch_HTs.append(ht)
+        # # hts = np.array(hts)
         batch_HAs = []
         for z in range(len(batch_Rs)):
             As = batch_As[z]
+            As = [A for A in As if A!=self.config.NA]
             r = batch_Rs[z]
             HA = [self.h(a, r) for a in As]
             padding = [np.float32(0.0)] * self.config.I
             HA.extend([padding] * (self.max_as_count - len(HA)))
             batch_HAs.append(HA)
-        return batch_HAs, batch_HTs
+        return batch_HAs
 
     def get_shuffled_data_set(self):
-
+        if self.data:
+            seed = random.random()
+            Rs, As, Ts, mistakes, Ans_indices = self.data['rs'][:-self.config.test_batch_size], self.data['encoded_anted_lists'][:-self.config.test_batch_size], self.data['encoded_answer_pairs'][:-self.config.test_batch_size], self.data['mistake_lists'][:-self.config.test_batch_size], self.data['answer_indices'][:-self.config.test_batch_size]
+            random.shuffle(Rs, lambda:seed)
+            random.shuffle(As, lambda:seed)
+            random.shuffle(Ts, lambda:seed)
+            random.shuffle(mistakes, lambda:seed)
+            random.shuffle(Ans_indices, lambda:seed)
+            return Rs, As, Ts, mistakes, Ans_indices
         random_indices = [randi for randi in range(len(self.test_rs) - self.config.test_batch_size)]
         random.shuffle(random_indices)
         Rs = []
@@ -448,4 +430,33 @@ class DataUtil:
 
         return Rs, As, Ts, mistakes, Ans_indices
 
+    def pre_encode_data(self):
+        assert len(self.test_r_antecedents) == len(self.test_rs) == len(self.test_r_answers) == len(self.test_answer_indices)
+        encoded_anted_lists = []
+        encoded_answer_pairs = []
+        mistake_lists = []
+        for i in range(len(self.test_rs)):
+            r = self.test_rs[i]
+            anteds = self.test_r_antecedents[i]
+            answer = self.test_r_answers[i]
+            encoded_anteds = [self.h(anted, r) for anted in anteds]
+            padding = [np.float32(0.0)] * self.config.I
+            encoded_anteds.extend([padding] * (self.max_as_count - len(encoded_anteds)))
+            encoded_anted_lists.append(encoded_anteds)
+            encoded_answer = self.h(answer, r)
+            encoded_answer_pairs.append(encoded_answer)
+            mistakes = [self.mistake(anted, answer) for anted in anteds]
+            mistakes.extend([np.float32(0.0)] * (self.max_as_count - len(mistakes)))
+            mistake_lists.append(mistakes)
 
+        assert len(encoded_answer_pairs) == len(encoded_anted_lists) == len(self.test_rs) == len(
+            self.test_answer_indices) == len(mistake_lists)
+        pickle_dict = {'encoded_anted_lists':encoded_anted_lists, 'encoded_answer_pairs':encoded_answer_pairs, 'mistake_lists':mistake_lists, 'rs':self.test_rs, 'answer_indices':self.test_answer_indices, 'r_antecedents': self.test_r_antecedents, 'answers': self.test_r_answers}
+        output = open('data.pkl', 'wb')
+        pickle.dump(pickle_dict, output)
+        output.close()
+
+
+if __name__ == '__main__':
+    du = DataUtil(Config())
+    du.pre_encode_data()

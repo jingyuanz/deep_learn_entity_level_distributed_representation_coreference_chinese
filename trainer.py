@@ -1,188 +1,151 @@
-#coding=utf-8
-import argparse
-# Import data
-import tensorflow as tf
-from compiler.ast import flatten
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Dec  8 19:40:51 2016
+
+@author: sean
+"""
 from data_util import DataUtil
 from config import Config
-import polyglot
-from polyglot.text import Text
-from polyglot.mapping import Embedding
-from tensorflow import TensorShape
+from sklearn import metrics
 import numpy as np
-from numpy import ndarray as nd
-import sys
-import random
+import tensorflow as tf
+import random, time, os
 
 
-class Coref_clustter:
-    def __init__(self):
-        self.config = Config()
+class Coref_cluster(object):
+
+    def __init__(self, config):
+        self.config = config
+        self.load_data()
+        self.add_placeholder()
+        scores = self.add_model()
+        self.add_loss_and_train_op(scores)
+        self.add_predict_op(scores)
+        self.init_op = tf.initialize_all_variables()
+        self.saver = tf.train.Saver()
+
+    def load_data(self):
         self.du = DataUtil(self.config)
-        self.embeddings = self.du.embeddings
-        self.W1 = tf.get_variable("w1",shape=[self.config.M1, self.config.I])
-        self.b1 = tf.get_variable("b1",shape=[self.config.M1, 1])
-        self.W2 = tf.get_variable("w2",shape=[self.config.M2, self.config.M1])
-        self.b2 = tf.get_variable("b2",shape=[self.config.M2, 1])
-        self.W3 = tf.get_variable("w3",shape=[self.config.D, self.config.M2])
-        self.b3 = tf.get_variable("b3",shape=[self.config.D, 1])
-        self.Wm = tf.get_variable("wm",shape=[1, self.config.D])
-        self.bm = tf.get_variable("bm",shape=[1])
-        # self.M = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
-        # self.As = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
-        # self.Ts = tf.placeholder(shape=TensorShape([]),dtype=tf.float32)
-        # self.R = self.du.test_rs
-        # self.As = self.du.test_r_antecedents
-        # self.Ts = self.du.test_r_answers
-        self.du.max_as_count += 1
-        self.mistakes = tf.placeholder(tf.float32, shape=[self.config.batch_size, self.du.max_as_count])
-        self.batch_HAs = tf.placeholder(tf.float32,shape=[self.config.batch_size, self.du.max_as_count, self.config.I])
-        self.batch_hts = tf.placeholder(tf.float32,shape=[self.config.batch_size, self.config.I])
-        self.indices = tf.placeholder(tf.float32, shape=[self.config.batch_size])
-        self.test_h_r_antecedents = tf.placeholder(tf.float32, shape=[self.config.test_batch_size, self.du.max_as_count, self.config.I])
-        # self.test_h_r_answers = tf.placeholder(tf.float32, shape=[self.config.test_batch_size, self.config.I])
-        self.test_indices = tf.placeholder(tf.float32, shape=[self.config.test_batch_size, self.du.max_as_count])
-        self.test_indices2 = tf.placeholder(tf.int64, shape=[self.config.test_batch_size])
-        self.test_answers_indices = tf.placeholder(tf.int64, shape=[self.config.test_batch_size])
+        self.max_as_count = self.du.max_as_count
 
-        self.train_h_r_antecedents = tf.placeholder(tf.float32, shape=[self.config.test_batch_size, self.du.max_as_count,
-                                                                      self.config.I])
-        # self.test_h_r_answers = tf.placeholder(tf.float32, shape=[self.config.test_batch_size, self.config.I])
-        self.train_indices = tf.placeholder(tf.float32, shape=[self.config.test_batch_size, self.du.max_as_count])
-        self.train_indices2 = tf.placeholder(tf.int64, shape=[self.config.test_batch_size])
-        self.train_answers_indices = tf.placeholder(tf.int64, shape=[self.config.test_batch_size])
+    def add_placeholder(self):
+        self.inputs = tf.placeholder(tf.float32)
+        self.labels = tf.placeholder(tf.int32)
+        self.deltas = tf.placeholder(tf.float32)
 
+    def create_feed_dict(self, inputs, deltas=None, labels=None):
+        feed = {self.inputs: inputs}
+        if labels:
+            feed[self.deltas] = deltas
+            feed[self.labels] = labels
+        return feed
 
-    def r(self, h):
-        h1 = tf.nn.relu(tf.matmul(self.W1,tf.reshape(h,[self.config.I, 1])) + self.b1)
-        h2 = tf.nn.relu(tf.matmul(self.W2,h1) + self.b2)
-        y = tf.nn.relu(tf.matmul(self.W3,h2) + self.b3)
-        return y
+    def add_model(self):
+        x = tf.reshape(self.inputs, (-1, self.config.I))
+        W1 = tf.get_variable('W1', [self.config.I, self.config.M1])
+        b1 = tf.get_variable('b1', [self.config.M1])
+        fc1 = tf.matmul(x, W1) + b1
+        relu1 = tf.nn.relu(fc1)
 
-    def s(self, h):
-        y = self.r(h)
-        s_val = tf.matmul(self.Wm, y) + self.bm
-        # s_val = tf.sigmoid(s_val)
-        return abs(s_val/10.0)
+        W2 = tf.get_variable('W2', [self.config.M1, self.config.M2])
+        b2 = tf.get_variable('b2', [self.config.M2])
+        fc2 = tf.matmul(relu1, W2) + b2
+        relu2 = tf.nn.relu(fc2)
 
+        W3 = tf.get_variable('W3', [self.config.M2, 1])
+        b3 = tf.get_variable('b3', [1])
+        fc3 = tf.matmul(relu2, W3) + b3
+        scores = tf.abs(fc3)
 
+        return scores
 
-    def main(self):
-        ''' up to here'''
-        # self.temp2 = tf.map_fn(lambda index: self.mistakes[tf.to_int32(index)]
-        self.temp1 = tf.map_fn(lambda index: tf.reduce_max(self.mistakes[tf.to_int32(index)]*tf.squeeze(tf.map_fn(lambda x: 1+self.s(x)-self.s(self.batch_hts[tf.to_int32(index)]), self.batch_HAs[tf.to_int32(index)]))), self.indices)
-        # self.temp1 = tf.map_fn(lambda index: tf.reduce_mean((self.mistakes[tf.to_int32(index)]*tf.squeeze(tf.map_fn(lambda x: 5+self.s(x)-self.s(self.batch_hts[tf.to_int32(index)]), self.batch_HAs[tf.to_int32(index)]))),, self.indices)
+    def add_loss_and_train_op(self, scores):
+        target_scores = tf.gather(scores, self.labels)
+        scores = tf.reshape(scores, (-1, self.max_as_count))
+        loss = 1 + scores - target_scores
+        self.loss = tf.reduce_sum(tf.reduce_max(loss * self.deltas, 1))
+        optimizer = tf.train.RMSPropOptimizer(self.config.learning_rate)
+        self.train_op = optimizer.minimize(self.loss)
 
-        self.loss = tf.reduce_sum(self.temp1)
-        train_step = tf.train.RMSPropOptimizer(self.config.learning_rate).minimize(self.loss)
-        # prediction = tf.map_fn(lambda index: self.test_h_r_antecedents[tf.to_int32(tf.arg_max(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)]), 1))], self.test_indices)
-        '''for testing'''
-        self.prediction = tf.squeeze(tf.map_fn(lambda index: tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index[0])]), self.test_indices))
-        self.prediction2 = tf.map_fn(lambda index: tf.arg_max(
-            tf.squeeze(tf.map_fn(lambda h: self.s(h), self.test_h_r_antecedents[tf.to_int32(index)])), 0),
-                                     self.test_indices2)
-        self.prediction2 = tf.squeeze(self.prediction2)
+    def add_predict_op(self, scores):
+        self.predictions = tf.argmax(tf.reshape(scores, (-1, self.max_as_count)), 1)
 
-        self.correct_prediction = tf.equal(self.prediction2, self.test_answers_indices)
-        self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
-
-        '''for training'''
-        self.prediction_train = tf.squeeze(
-            tf.map_fn(lambda index: tf.map_fn(lambda h: self.s(h), self.train_h_r_antecedents[tf.to_int32(index[0])]),
-                      self.train_indices))
-        self.prediction2_train = tf.map_fn(lambda index: tf.arg_max(
-            tf.squeeze(tf.map_fn(lambda h: self.s(h), self.train_h_r_antecedents[tf.to_int32(index)])), 0),
-                                     self.train_indices2)
-        self.prediction2_train = tf.squeeze(self.prediction2_train)
-
-        self.correct_prediction_train = tf.equal(self.prediction2_train, self.train_answers_indices)
-        self.accuracy_train = tf.reduce_mean(tf.cast(self.correct_prediction_train, tf.float32))
-
-
-        sess = tf.InteractiveSession()
-        # Train
-        tf.initialize_all_variables().run()
-
-        for i in range(100):
-            print "epoch:", i
-
-            shuffled_epoch_Rs, shuffled_epoch_HAs, shuffled_epoch_HTs, shuffled_epoch_mistakes, shuffled_answer_indices = self.du.get_shuffled_data_set()
-            print 'epoch data fetched'
-            start_i = 0
+    def run_epoch(self, session, save=None, load=None):
+        if not os.path.exists('./save'):
+            os.makedirs('./save')
+        if load:
+            self.saver.restore(session, load)
+        else:
+            session.run(self.init_op)
+        time0 = time.time()
+        for epoch in range(self.config.epochs):
+            time1 = time.time()
+            shuffled_epoch_Rs, shuffled_epoch_HAs, shuffled_epoch_HTs, shuffled_epoch_deltas, \
+                    shuffled_answer_indices = self.du.get_shuffled_data_set()
+            assert len(shuffled_epoch_HTs) == len(shuffled_answer_indices) == len(shuffled_epoch_deltas)
+            start_ind = 0
             len_data_set = len(shuffled_epoch_Rs)
             step = 1
-
-            while start_i < len_data_set:
-
-                print "epoch",i," step", step
+            time2 = time.time()
+            best_loss = float('inf')
+            loss = 0
+            while start_ind < len_data_set:
+                time3 = time.time()
+                end_ind = start_ind + self.config.batch_size
+                if end_ind > len_data_set:
+                    end_ind = len_data_set
+                    start_ind = end_ind - self.config.batch_size
+                batch_Rs = shuffled_epoch_Rs[start_ind:end_ind]
+                batch_As = shuffled_epoch_HAs[start_ind:end_ind]
+                batch_Ts = shuffled_epoch_HTs[start_ind:end_ind]
+                batch_labels = shuffled_answer_indices[start_ind:end_ind]
+                batch_deltas = shuffled_epoch_deltas[start_ind:end_ind]
+                batch_HAs = self.du.encode_mention_pairs(batch_Rs, batch_Ts, batch_As)
+                start_ind = end_ind
+                time4 = time.time()
+                batch_labels = [batch_labels[i]+self.max_as_count*i for i in range(
+                                len(batch_labels))]
+                feed = self.create_feed_dict(batch_HAs, batch_deltas, batch_labels)
+                batch_loss, _ = sess.run([self.loss, self.train_op], feed_dict=feed)
+                time5 = time.time()
+                loss += batch_loss
+                if step % self.config.interval == 0:
+                    print 'Epoch {}, Step {}, Time {:.2f}, Loss {:.2f}'.format(
+                            epoch, step, time5-time0, batch_loss)
                 step += 1
-                end_i = start_i + self.config.batch_size
-                if end_i > len_data_set:
-                    end_i = len_data_set
-                    start_i = end_i - self.config.batch_size
-                batch_Rs = shuffled_epoch_Rs[start_i:end_i]
-                batch_As = shuffled_epoch_HAs[start_i:end_i]
-                batch_Ts = shuffled_epoch_HTs[start_i:end_i]
-                batch_mistakes = shuffled_epoch_mistakes[start_i:end_i]
-                print 'step data fetched'
-                batch_HAs, batch_HTs = self.du.encode_mention_pairs(batch_Rs, batch_Ts, batch_As)
-                print 'step data encoded'
-                indices = [w for w in range(self.config.batch_size)]
 
-                start_i = end_i
-                print 'training'
-                _, batch_loss, _ = sess.run([self.temp1,self.loss,train_step], feed_dict={self.mistakes: batch_mistakes, self.batch_hts: batch_HTs, self.batch_HAs: batch_HAs, self.indices: indices})
+            if best_loss >= loss / step:
+                self.evluation(session)
+                if save is not None:
+                    self.saver.save(session, save)
+                else:
+                    self.saver.save(session, './save/weight_{}'.format(epoch))
 
-            print 'epoch training finished'
-            print 'training....testing...'
-            test_rs_batch, test_answer_indices, test_r_antecedents = self.du.get_test_data(self.config.test_batch_size, 'test')
-            train_rs_batch, train_answer_indices, train_r_antecedents = self.du.get_test_data(self.config.test_batch_size, 'train')
+    def evluation(self, session, load=None):
+        if load:
+            self.saver.restore(session, load)
 
-            test_indices = [[ti for tii in range(self.du.max_as_count)] for ti in range(self.config.test_batch_size)]
-            test_indices2 = [ti2 for ti2 in range(self.config.test_batch_size)]
-            train_indices = [[ti for tii in range(self.du.max_as_count)] for ti in range(self.config.test_batch_size)]
-            train_indices2 = [ti2 for ti2 in range(self.config.test_batch_size)]
+        train_answer_indices, train_h_r_antecedents = \
+                self.du.get_test_data(self.config.test_batch_size, 'train')
+        feed1 = self.create_feed_dict(inputs=train_h_r_antecedents)
+        predictions1 = sess.run(self.predictions, feed_dict=feed1)
 
-            test_predict_by_scores, test_predict_indices, test_true_false, test_accuracy, train_predict_by_scores, train_predict_indices, train_true_false, train_accuracy = sess.run([self.prediction, self.prediction2, self.correct_prediction, self.accuracy, self.prediction_train, self.prediction2_train, self.correct_prediction_train, self.accuracy_train], feed_dict={self.test_answers_indices: test_answer_indices, self.test_h_r_antecedents: test_r_antecedents, self.test_indices: test_indices, self.test_indices2: test_indices2,self.train_answers_indices: train_answer_indices, self.train_h_r_antecedents: train_r_antecedents, self.train_indices: train_indices, self.train_indices2: train_indices2})
+        test_answer_indices, test_h_r_antecedents = \
+                self.du.get_test_data(self.config.test_batch_size, 'test')
+        feed2 = self.create_feed_dict(inputs=test_h_r_antecedents)
+        predictions2 = sess.run(self.predictions, feed_dict=feed2)
 
-
-            '''print stuff'''
-
-            print
-            # print 'predictions: \n',nd.tolist(c)
-            print 'prediction indices: \n', nd.tolist(test_predict_indices)
-            print 'actual predicts: \n',test_answer_indices
-            for p_i in range(len(test_predict_indices)):
-                ans = test_r_antecedents[p_i][test_predict_indices[p_i]]
-                if ans!=self.config.NA:
-                    ans = ans[2]
-                label = test_r_antecedents[p_i][test_answer_indices[p_i]]
-                sent_num = self.config.NA
-                w_num = self.config.NA
-                if label != self.config.NA:
-                    w_num = label[1]
-                    sent_num = label[0]
-                    label = label[2]
-
-                print 'predict: ', test_predict_indices[p_i], ans, 'labelled: ', test_answer_indices[p_i], label, w_num, sent_num
-            print 'correct/incorrect: \n', test_true_false
-            print 'test_accuracy: \n', test_accuracy
-            print 'train_accuracy: \n', train_accuracy
-
-            print
-
-
-    def weight_variable(self, shape):
-        initial = tf.truncated_normal(shape, stddev=0.1)
-        return tf.Variable(initial)
-
-    def bias_variable(self, shape):
-        initial = tf.constant(0.1, shape=shape)
-        return tf.Variable(initial)
+        train_acc = metrics.accuracy_score(train_answer_indices, predictions1)
+        test_acc = metrics.accuracy_score(test_answer_indices, predictions2)
+        
+        print '============================='
+        print 'Training Accuracy: {:.4f}'.format(train_acc)
+        print 'Testing Accuracy: {:.4f}'.format(test_acc)
+        print '============================='
 
 
 if __name__ == '__main__':
-
-    cc = Coref_clustter()
-    # cc.h(cc.M[0],cc.M[1])
-    cc.main()
+    config = Config()
+    cc = Coref_cluster(config)
+    with tf.Session() as sess:
+        cc.run_epoch(sess)
