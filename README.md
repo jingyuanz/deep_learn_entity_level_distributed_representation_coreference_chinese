@@ -25,6 +25,12 @@ Tested for Chinese.English shud be working but not tested.
 training accuracy 99% (2000+ stories)
 testing accuracy 65.５％ (200+ stories)
 
+2016-12-13 result
+training = 
+testing = 
+
 still improving the loss function, (since I changed the model)
 
-Feature engineering & initial neural structure by Jingyuan Zhang, optimized neural network (prevent overfitting) by seanxu, at Kalamodo, Suzhou
+Feature engineering & initial overfitting neural network by Jingyuan Zhang, optimized neural network (prevent overfitting) by seanxu, at Kalamodo, Suzhou
+
+(And this is probably not counted as deep learning...more of a feature eng project + a simple neural network)
