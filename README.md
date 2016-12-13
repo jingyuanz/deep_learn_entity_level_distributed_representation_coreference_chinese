@@ -27,4 +27,4 @@ testing accuracy 65.５％ (200+ stories)
 
 still improving the loss function, (since I changed the model)
 
-by Jingyuan Zhang, at Kalamodo, Suzhou
+Feature engineering & initial neural structure by Jingyuan Zhang, optimized neural network (prevent overfitting) by seanxu, at Kalamodo, Suzhou
