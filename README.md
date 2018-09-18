@@ -21,13 +21,6 @@ Btw, I also changed the source code of Polyglot to do a bit of tricks, it's not 
 
 Tested for Chinese.English shud be working but not tested.
 
-2016-12-08 result
-training accuracy 99% (2000+ stories)
-testing accuracy 65.５％ (200+ stories)
-
-2016-12-13 result
-training = 
-testing = 
 
 still improving the loss function, (since I changed the model)
 
